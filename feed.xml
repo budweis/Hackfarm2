@@ -1,0 +1,1030 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Siteleaf</title>
+    <description>Built for developers, Loved by everyone. Supports Jekyll, user collaboration, publishing to AWS S3, GitHub Pages, FTP, and more.</description>
+    <link>http://www.siteleaf.com/</link>
+    <atom:link href="http://www.siteleaf.com/feed.xml" rel="self" type="application/rss+xml"/>
+    <pubDate>Sun, 24 Jul 2016 16:22:32 -0400</pubDate>
+    <lastBuildDate>Sun, 24 Jul 2016 16:22:32 -0400</lastBuildDate>
+    <generator>Jekyll v3.1.6</generator>
+    
+      <item>
+        <title>Image and video processing for your static site</title>
+        <description>&lt;p&gt;Static HTML sites are great — there’s no reliance on a server or database, you can host them for cheap, archive an entire copy on a USB drive, and when they’re properly optimized they can be blazing fast. Optimization can be tricky when it comes to static sites though. Since there’s no server processing and generating your pages, you don’t have the benefit of using something like &lt;a href=&quot;http://www.imagemagick.org/&quot;&gt;ImageMagick&lt;/a&gt; alongside a gem like CarrierWave, which makes it easy to resize and optimize your images when they’re uploaded. The same goes for video. If you’re not hosting your video on YouTube or Vimeo, you’re responsible for transcoding the video into the various formats favored by the different browsers. So what’s a developer to do?&lt;/p&gt;
+
+&lt;h2 id=&quot;processing-as-a-service&quot;&gt;Processing as a service&lt;/h2&gt;
+
+&lt;p&gt;One option is to use a 3rd party. There’s been a handful of companies who have started offering image and video processing as a service. These services are a great option if you don’t want to maintain your own solution, are “on demand”, and make it really simple to get started. To name just a few:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/imgix-servers.jpeg&quot; alt=&quot;imgix servers&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;&lt;a href=&quot;http://imgix.com/&quot;&gt;imgix&lt;/a&gt;&lt;/strong&gt; generates your images on demand. In your image URLs you specify parameters like the dimensions, filters, face detection and type of cropping. Once the image is generated, it’s cached and served via their CDN. imgix charges $3 per “1,000 master images accessed each month” and $0.08 per GB of bandwidth.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;&lt;a href=&quot;http://cloudinary.com/&quot;&gt;Cloudinary&lt;/a&gt;&lt;/strong&gt; offers processing services for images and video and is a bit more robust than imgix. Cloudinary offers a limited free plan with the next step up being $44/month.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;&lt;a href=&quot;http://embed.ly/&quot;&gt;Embedly&lt;/a&gt;&lt;/strong&gt;, like Cloudinary, offers processing options for both images and video. They offer a limited free plan with the next step up being $23/month for video and $9/month for images.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;&lt;a href=&quot;https://www.filestack.com/&quot;&gt;Filestack&lt;/a&gt;&lt;/strong&gt; is another. In addition to processing images and video, they offer document transformations and URL screenshots. They offer a limited free plan with the next step up being $49/month.&lt;/p&gt;
+
+&lt;h2 id=&quot;rolling-your-own-solution-with-aws&quot;&gt;Rolling your own solution with AWS&lt;/h2&gt;
+
+&lt;p&gt;What if you don’t want to pay a premium to subscribe to another service to process and serve your media? Typically you don’t need all the whiz-bang options offered by 3rd party services and a straightforward approach is typically enough for simple sites. Static sites can benefit just as much from a microservices approach as any other type of site, and if you host your site on S3, AWS gives us all the tools we need to processes our own images and video for much cheaper, though with a bit more setup and expertise required from our end.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/media-processing-diagram.png&quot; alt=&quot;media-processing-diagram.png&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;open-source-lambda-functions&quot;&gt;Open source Lambda functions&lt;/h3&gt;
+
+&lt;p&gt;What follows is a high-level overview of the AWS services you can use to build your own image and video processing pipeline. To dive into the code, view working examples and more in-depth documentation, you can &lt;a href=&quot;https://github.com/sawyerh/lambda-asset-pipeline&quot;&gt;view all the open source code on GitHub&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;s3-event-notifications&quot;&gt;S3 Event Notifications&lt;/h3&gt;
+
+&lt;p&gt;The main magic to all of this are &lt;a href=&quot;https://docs.aws.amazon.com/en_us/console/s3/events&quot;&gt;S3 event notifications&lt;/a&gt;. With this you can trigger Lambda functions when new objects are published to your bucket. You can specify which directory (using the Prefix field) and which file extensions to watch for (using the Suffix field). For example, you could set up an event notification to trigger a Lambda function when any object ending with &lt;code class=&quot;highlighter-rouge&quot;&gt;jpg&lt;/code&gt; is added to the &lt;code class=&quot;highlighter-rouge&quot;&gt;original/&lt;/code&gt; directory.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/s3-event-notification.png&quot; alt=&quot;s3-event-notification.png&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;lambda&quot;&gt;Lambda&lt;/h3&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://aws.amazon.com/lambda/&quot;&gt;Lambda&lt;/a&gt; is where we place the code that manages our processing logic. When a new object is added to our S3 bucket, S3 sends an event to our Lambda function with information about the object. Here’s a sample event, the only parts we care about are the object’s key and bucket name:&lt;/p&gt;
+
+&lt;div class=&quot;language-json highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+  &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;Records&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;eventVersion&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;2.0&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;eventTime&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;1970-01-01T00:00:00.000Z&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;requestParameters&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;sourceIPAddress&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;127.0.0.1&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;s3&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;configurationId&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;testConfigRule&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;object&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+          &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;eTag&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;0123456789abcdef0123456789abcdef&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+          &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;sequencer&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;0A1B2C3D4E5F678901&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+          &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;key&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;HappyFace.jpg&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+          &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;size&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1024&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;bucket&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+          &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;arn&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;arn:aws:s3:::mybucket&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+          &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;name&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;sourcebucket&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+          &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;ownerIdentity&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+            &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;principalId&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;EXAMPLE&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+          &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;s3SchemaVersion&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;1.0&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;responseElements&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;x-amz-id-2&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;x-amz-request-id&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;EXAMPLE123456789&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;awsRegion&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;us-east-1&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;eventName&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;ObjectCreated:Put&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;userIdentity&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;principalId&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;EXAMPLE&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;eventSource&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;aws:s3&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+  &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;ImageMagick is provided in the Lambda environment without any installation required on our part, and we can use this to resize and process our images. The AWS SDK is also provided by default and we can use it to save our processed images back to S3 or to trigger an Elastic Transcoder job which handles our video processing.&lt;/p&gt;
+
+&lt;h3 id=&quot;elastic-transcoder&quot;&gt;Elastic Transcoder&lt;/h3&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://aws.amazon.com/elastictranscoder/&quot;&gt;Elastic Transcoder&lt;/a&gt; transcodes videos from one format to another to be playable on various devices and browsers. For example, you could use it to convert MP4 files to WebM. AWS Lambda can create an Elastic Transcoder job for each new video object that its been notified about. In Elastic Trancoder you create a “pipeline” which specifies the input and output buckets for your media files. Optionally, you can also create a “preset” which specifies the output format, dimensions, and thumbnail options. In most cases you can just use one of the standard presets AWS provides.&lt;/p&gt;
+
+&lt;h3 id=&quot;build-your-own&quot;&gt;Build your own&lt;/h3&gt;
+
+&lt;p&gt;The above was just a high-level overview of the AWS services you can use to build your own media processing pipeline. Hopefully you now have a decent mental model of how theses pieces fit together. If you’d like to learn more, head over to GitHub to view some open source Lambda functions which you can use to get started with your own media processing setup: &lt;a href=&quot;https://github.com/sawyerh/lambda-asset-pipeline&quot;&gt;github.com/sawyerh/lambda-asset-pipeline&lt;/a&gt;&lt;/p&gt;
+</description>
+        <pubDate>Sun, 17 Jul 2016 10:16:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/image-and-video-processing-for-your-static-site/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/image-and-video-processing-for-your-static-site/</guid>
+        
+        <category>tutorial</category>
+        
+        <category>aws</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>Connecting GitHub and Siteleaf</title>
+        <description>&lt;iframe src=&quot;https://player.vimeo.com/video/171941124?title=0&amp;amp;byline=0&amp;amp;portrait=0&quot; width=&quot;640&quot; height=&quot;360&quot; frameborder=&quot;0&quot; webkitallowfullscreen=&quot;&quot; mozallowfullscreen=&quot;&quot; allowfullscreen=&quot;&quot;&gt;&lt;/iframe&gt;
+
+&lt;p class=&quot;caption&quot;&gt;Watch &lt;a href=&quot;https://vimeo.com/171941124&quot;&gt;Connecting GitHub and Siteleaf&lt;/a&gt; on Vimeo&lt;/p&gt;
+
+&lt;p&gt;This tutorial will show you how to connect and sync an existing Jekyll site from GitHub to Siteleaf, so you can edit content and preview your site in the cloud.&lt;/p&gt;
+
+&lt;p&gt;If you are new to Jekyll, you may want to start with our &lt;a href=&quot;/blog/jekyll-from-scratch/&quot;&gt;Jekyll from Scratch&lt;/a&gt; first tutorial to catch up on the basics.&lt;/p&gt;
+
+&lt;h2 id=&quot;what-is-github-sync&quot;&gt;What is GitHub sync?&lt;/h2&gt;
+
+&lt;p&gt;When developing your site, you’ll generally want to keep your theme and content in sync so you can see how everything looks in context.&lt;/p&gt;
+
+&lt;p&gt;By enabling GitHub sync, any changes you make in your Git repo will be immediately saved to Siteleaf, and vice versa. So any edit you or anyone on your team makes in Siteleaf is synced and backed up. You can see a log of all changes in GitHub, and revert to any state in case anyone makes a mistake.&lt;/p&gt;
+
+&lt;p&gt;We like to think of it as a time machine for your content.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/home__develop--github.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;connecting-your-repo&quot;&gt;Connecting your repo&lt;/h2&gt;
+
+&lt;p&gt;We already have our GitHub repo from the &lt;a href=&quot;/blog/jekyll-from-scratch/&quot;&gt;previous tutorial&lt;/a&gt;, so the next step is to create a new site in Siteleaf.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/connecting-github-new.jpg&quot; alt=&quot;Connecting your GitHub repo in Siteleaf&quot; /&gt;&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;Log in to &lt;a href=&quot;https://manage.siteleaf.com&quot;&gt;manage.siteleaf.com&lt;/a&gt; and choose &lt;strong&gt;Create new site&lt;/strong&gt;.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Instead of creating your site from scratch (which will give you a default Jekyll theme), choose  &lt;strong&gt;Connect with GitHub&lt;/strong&gt;.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Siteleaf will give you an option to authorize with &lt;strong&gt;Public&lt;/strong&gt; or &lt;strong&gt;Private&lt;/strong&gt; repo access. Choose the level of privacy that fits your needs.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Once authorized, choose your repo name (e.g. &lt;code class=&quot;highlighter-rouge&quot;&gt;username/my-site&lt;/code&gt;).&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Optionally choose a branch name, or leave it blank to accept the default &lt;code class=&quot;highlighter-rouge&quot;&gt;master&lt;/code&gt; branch.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;To complete setup, click &lt;strong&gt;Connect and create site&lt;/strong&gt;.&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;Siteleaf will now go through and import your site’s files. This usually takes a few seconds, depending on the size of your site.&lt;/p&gt;
+
+&lt;p&gt;Once completed, you should be redirected to your site’s dashboard in Siteleaf.&lt;/p&gt;
+
+&lt;h2 id=&quot;checking-status&quot;&gt;Checking status&lt;/h2&gt;
+
+&lt;p&gt;To confirm the status of your sync, open the &lt;strong&gt;Status&lt;/strong&gt; menu in the top bar. If everything went well, you’ll see a green icon and the time it was last synced.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/connecting-github-status.png&quot; alt=&quot;The Status menu in Siteleaf&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;You can also see the status of publishes and previews here, which we’ll get into later. Click the link icons to jump directly to your GitHub repo or preview site.&lt;/p&gt;
+
+&lt;p&gt;If for any reason an action wasn’t successful, there would be an red error message here to explain what happened.&lt;/p&gt;
+
+&lt;p class=&quot;note&quot;&gt;On initial sync, you may notice a commit from Siteleaf to normalize YAML front matter. See our &lt;a href=&quot;http://learn.siteleaf.com/themes/github-sync/#faq&quot;&gt;Sync FAQ&lt;/a&gt; for more.&lt;/p&gt;
+
+&lt;h2 id=&quot;jekyll-content-in-siteleaf&quot;&gt;Jekyll content in Siteleaf&lt;/h2&gt;
+
+&lt;p&gt;Now that your site is imported into Siteleaf, let’s take a quick look at how Jekyll’s content is organized in the Siteleaf interface.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/connecting-github-siteleaf.jpg&quot; alt=&quot;Jekyll content in Siteleaf&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;pages&quot;&gt;Pages&lt;/h3&gt;
+
+&lt;p&gt;Any page with a markdown extension (e.g. &lt;code class=&quot;highlighter-rouge&quot;&gt;about.markdown&lt;/code&gt;) and front matter will show up here.&lt;/p&gt;
+
+&lt;h3 id=&quot;collections&quot;&gt;Collections&lt;/h3&gt;
+
+&lt;p&gt;By default, Jekyll sites come with a collection called Posts. This collection will show all markdown files (called Documents) in its related collection folder (e.g. &lt;code class=&quot;highlighter-rouge&quot;&gt;_posts/2016-06-24-welcome.markdown&lt;/code&gt;).&lt;/p&gt;
+
+&lt;p&gt;You can also create new collections for additional groups of documents right in Siteleaf.&lt;/p&gt;
+
+&lt;h3 id=&quot;uploads&quot;&gt;Uploads&lt;/h3&gt;
+
+&lt;p&gt;Siteleaf has a special collection called Uploads (found under &lt;strong&gt;Files &amp;gt; Uploads&lt;/strong&gt;), which is where we can put images and any non-theme related assets content editors might need to access. In GitHub, this will show up as a directory called &lt;code class=&quot;highlighter-rouge&quot;&gt;_uploads&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Any files uploaded using the admin interface will automatically be placed here.&lt;/p&gt;
+
+&lt;h3 id=&quot;site-files&quot;&gt;Site files&lt;/h3&gt;
+
+&lt;p&gt;You can see a full file tree of everything under &lt;strong&gt;Files &amp;gt; Site&lt;/strong&gt;. Unlike Pages and Collections which only surface Markdown files, this shows everything from content to theme (similar to what you see in GitHub).&lt;/p&gt;
+
+&lt;h3 id=&quot;settings&quot;&gt;Settings&lt;/h3&gt;
+
+&lt;p&gt;Lastly, you’ll see an option for Settings. This allows us to modify the same settings and metadata from Jekyll’s &lt;code class=&quot;highlighter-rouge&quot;&gt;_config.yml&lt;/code&gt; file, as well as set up hosting and change our sync settings.&lt;/p&gt;
+
+&lt;h2 id=&quot;creating-a-new-page&quot;&gt;Creating a new page&lt;/h2&gt;
+
+&lt;p&gt;Now lets try adding a new page, by choosing &lt;strong&gt;Pages &amp;gt; New&lt;/strong&gt; page. As a shortcut, you can also click the  &lt;strong&gt;+&lt;/strong&gt; icon next to Pages in the left menu.&lt;/p&gt;
+
+&lt;p&gt;Feel free to give your page a name (I’m going to call mine “Contact”), add some text, and save.&lt;/p&gt;
+
+&lt;p&gt;You’ll notice Siteleaf syncs this change in the background, and you can jump back to the GitHub repo to see how this change looks.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/connecting-github-github.jpg&quot; alt=&quot;Connecting with GitHub&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;You should notice a new markdown file (in my case called &lt;code class=&quot;highlighter-rouge&quot;&gt;contact.markdown&lt;/code&gt;) which contains the title and body that we created.&lt;/p&gt;
+
+&lt;h2 id=&quot;previewing-your-site&quot;&gt;Previewing your site&lt;/h2&gt;
+
+&lt;p&gt;Siteleaf lets you build and preview your site in the cloud. This is a great way to see how your content looks and catch any mistakes before publishing changes live.&lt;/p&gt;
+
+&lt;p&gt;To have a quick look at our new page, click &lt;strong&gt;Generate item preview&lt;/strong&gt; located under the save button.&lt;/p&gt;
+
+&lt;p&gt;This will open a unique URL where you can preview your entire site. This URL can be also be shared with clients or colleagues to quickly show development progress or get feedback on unpublished content.&lt;/p&gt;
+
+&lt;p class=&quot;warning&quot;&gt;When previewing your site, Siteleaf will automatically include future-dated and draft posts. These generally will not be published live, unless enabled in your &lt;a href=&quot;https://jekyllrb.com/docs/configuration/&quot;&gt;site configuration&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;publishing-your-site&quot;&gt;Publishing your site&lt;/h2&gt;
+
+&lt;p&gt;Siteleaf allows you publish just about anywhere: GitHub Pages, Amazon S3, Rackspace Cloud Files, and FTP or SFTP servers (like MediaTemple, Dreamhost, Digital Ocean, and so on).&lt;/p&gt;
+
+&lt;p&gt;For this demo I’ll choose GitHub Pages, which we love. It’s backed by a CDN and included free with your GitHub account.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/connecting-github-hosting.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;To configure hosting with GitHub Pages:&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;Click &lt;strong&gt;Settings&lt;/strong&gt; from the left menu and jump to the &lt;strong&gt;Hosting&lt;/strong&gt; tab.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;You can use a custom domain if you want, or stick to a free &lt;code class=&quot;highlighter-rouge&quot;&gt;siteleaf.net&lt;/code&gt; subdomain to get started. Siteleaf will automatically create GitHub’s required &lt;code class=&quot;highlighter-rouge&quot;&gt;CNAME&lt;/code&gt; file to make this work.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Next, choose &lt;strong&gt;Connect with GitHub&lt;/strong&gt; again, and choose the permission we want.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Enter your repo name (e.g. &lt;code class=&quot;highlighter-rouge&quot;&gt;username/my-site&lt;/code&gt;). Normally you’ll want to choose the same repo that you’re syncing with, but you can publish to a different repo if you prefer.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Optionally specify a branch name, or leave it blank to use the default &lt;code class=&quot;highlighter-rouge&quot;&gt;gh-pages&lt;/code&gt; branch (which GitHub uses for &lt;a href=&quot;https://help.github.com/articles/user-organization-and-project-pages/&quot;&gt;Project Pages&lt;/a&gt;).&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Finally, you can choose to have the site compiled by Siteleaf or GitHub Pages (the default). Both of these options will give you essentially the same final website. But if you choose Siteleaf, it will precompile your site to HTML and let you know if there are any issues &lt;em&gt;before&lt;/em&gt; pushing it to your repo.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;To complete setup, click &lt;strong&gt;Save&lt;/strong&gt;.&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p class=&quot;note&quot;&gt;The instructions above will be similar for other hosting providers, see our &lt;a href=&quot;http://learn.siteleaf.com/sites/hosting/&quot;&gt;help docs&lt;/a&gt; for specifics.&lt;/p&gt;
+
+&lt;p&gt;Now to publish the site, hit &lt;strong&gt;Publish changes&lt;/strong&gt; in the top bar.&lt;/p&gt;
+
+&lt;p&gt;Siteleaf will publish your site in the background and let you know when its finished. Depending on the size of your site, this may take a several seconds (longer if Siteleaf is precompiling the site for you).&lt;/p&gt;
+
+&lt;p&gt;Once its done, visit your domain name and check out your new site! As a shortcut, you can jump to your live site from within the status menu.&lt;/p&gt;
+
+&lt;h2 id=&quot;next-steps&quot;&gt;Next steps&lt;/h2&gt;
+
+&lt;p&gt;To dive deeper, check out our help site &lt;a href=&quot;http://learn.siteleaf.com&quot;&gt;learn.siteleaf.com&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Stay tuned for an upcoming tutorial where we’ll further explore Siteleaf and how to customize the admin for your site.&lt;/p&gt;
+</description>
+        <pubDate>Fri, 24 Jun 2016 13:00:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/connecting-github/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/connecting-github/</guid>
+        
+        <category>tutorial</category>
+        
+        <category>jekyll</category>
+        
+        <category>github</category>
+        
+        <category>video</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>Jekyll from scratch</title>
+        <description>&lt;iframe src=&quot;https://player.vimeo.com/video/170526921?title=0&amp;amp;byline=0&amp;amp;portrait=0&quot; width=&quot;640&quot; height=&quot;360&quot; frameborder=&quot;0&quot; webkitallowfullscreen=&quot;&quot; mozallowfullscreen=&quot;&quot; allowfullscreen=&quot;&quot;&gt;&lt;/iframe&gt;
+
+&lt;p class=&quot;caption&quot;&gt;Watch &lt;a href=&quot;https://vimeo.com/170526921&quot;&gt;Jekyll from Scratch&lt;/a&gt; on Vimeo&lt;/p&gt;
+
+&lt;p&gt;In this tutorial, we’ll show you how to get set up and develop websites locally using &lt;a href=&quot;http://jekyllrb.com&quot;&gt;Jekyll&lt;/a&gt;. We’ll cover installation, creating a new site, file structure, and finally we’ll commit the new site to GitHub.&lt;/p&gt;
+
+&lt;p&gt;This will give you a functional website that you can edit offline. Also make sure to check out the &lt;a href=&quot;/blog/connecting-github&quot;&gt;next tutorial&lt;/a&gt; where we’ll connect our site to the new &lt;a href=&quot;/blog/v2&quot;&gt;Siteleaf v2&lt;/a&gt; so we can edit content in the cloud.&lt;/p&gt;
+
+&lt;h2 id=&quot;what-is-jekyll&quot;&gt;What is Jekyll?&lt;/h2&gt;
+
+&lt;p&gt;Jekyll is a static website generator built on Ruby. It takes &lt;a href=&quot;https://daringfireball.net/projects/markdown/&quot;&gt;Markdown text&lt;/a&gt; (your site’s content) and &lt;a href=&quot;https://shopify.github.io/liquid/&quot;&gt;Liquid templates&lt;/a&gt; (your site’s theme) and outputs simple HTML that can be hosted pretty much anywhere.&lt;/p&gt;
+
+&lt;p&gt;It’s also what powers &lt;a href=&quot;https://pages.github.com&quot;&gt;GitHub Pages&lt;/a&gt;, which serves more than &lt;a href=&quot;https://github.com/blog/1992-eight-lessons-learned-hacking-on-github-pages-for-six-months&quot;&gt;half a million websites&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;getting-started&quot;&gt;Getting started&lt;/h2&gt;
+
+&lt;p&gt;To get started, we are going to install Jekyll, which is available to download as a Ruby gem. We’ll be following the quick-start instructions on &lt;a href=&quot;http://jekyllrb.com&quot;&gt;Jekyll’s website&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;So let’s open the trusty command line.&lt;/p&gt;
+
+&lt;p&gt;First, you’ll want to make sure you are running a recent version of Ruby. You can confirm by running the following command:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;ruby -v
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;The &lt;a href=&quot;https://www.ruby-lang.org/en/downloads/&quot;&gt;latest stable&lt;/a&gt; version is 2.3.1, but anything above 2.2 should be fine. If you need to upgrade, we recommend using something like &lt;a href=&quot;http://rbenv.org&quot;&gt;rbenv&lt;/a&gt; to make it easy.&lt;/p&gt;
+
+&lt;p&gt;So now to install Jekyll, we’ll run:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;gem install jekyll
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;If you already have Jekyll installed, you might want to run the following command to make sure you are using the latest version:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;gem update jekyll
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h2 id=&quot;creating-a-site&quot;&gt;Creating a site&lt;/h2&gt;
+
+&lt;p&gt;Now that we have Jekyll installed, we can create a new site by running:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;jekyll new my-site
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Feel free to replace &lt;code class=&quot;highlighter-rouge&quot;&gt;my-site&lt;/code&gt; with whatever you’d like to call your site.&lt;/p&gt;
+
+&lt;p&gt;Jekyll will automatically create a folder for the new site, so let’s change directory:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;cd &lt;/span&gt;my-site
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Jekyll will give you its default theme which is a great way to see how it works. So open this folder in your favorite text editor and let’s have a quick peek at its file structure.&lt;/p&gt;
+
+&lt;h2 id=&quot;jekyll-file-structure&quot;&gt;Jekyll file structure&lt;/h2&gt;
+
+&lt;h3 id=&quot;site-config&quot;&gt;Site config&lt;/h3&gt;
+
+&lt;p&gt;The first file we’ll look at, and probably the most important, is &lt;code class=&quot;highlighter-rouge&quot;&gt;_config.yml&lt;/code&gt;. This file contains all your site settings, including &lt;code class=&quot;highlighter-rouge&quot;&gt;title&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;description&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;url&lt;/code&gt;, and any other metadata you’d like to include in &lt;a href=&quot;http://yaml.org&quot;&gt;YAML format&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;It should look something like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;# Site settings&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Your awesome title&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;email&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;your-email@domain.com&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;description&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# this means to ignore newlines until &quot;baseurl:&quot;&lt;/span&gt;
+  &lt;span class=&quot;no&quot;&gt;Write an awesome description for your new site here. You can edit this&lt;/span&gt;
+  &lt;span class=&quot;no&quot;&gt;line in _config.yml. It will appear in your document head meta (for&lt;/span&gt;
+  &lt;span class=&quot;no&quot;&gt;Google search results) and in your feed.xml site description.&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;baseurl&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# the subpath of your site, e.g. /blog&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;url&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;http://yourdomain.com&quot;&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# the base hostname &amp;amp; protocol for your site&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;twitter_username&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;jekyllrb&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;github_username&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;  &lt;span class=&quot;s&quot;&gt;jekyll&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p class=&quot;tip&quot;&gt;These settings can be referenced in Liquid using the &lt;code class=&quot;highlighter-rouge&quot;&gt;site&lt;/code&gt; prefix, for example: &lt;code class=&quot;highlighter-rouge&quot;&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;{site.email&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;You can refer to &lt;a href=&quot;https://jekyllrb.com/docs/configuration/&quot;&gt;Jekyll’s excellent documentation&lt;/a&gt; for a full list of configuration settings.&lt;/p&gt;
+
+&lt;h3 id=&quot;templates--partials&quot;&gt;Templates &amp;amp; partials&lt;/h3&gt;
+
+&lt;p&gt;You should see a pair of special folders called &lt;code class=&quot;highlighter-rouge&quot;&gt;_includes&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;_layouts&lt;/code&gt;, this is where your Liquid files will go.&lt;/p&gt;
+
+&lt;p&gt;Includes are great for small bits of &lt;a href=&quot;https://jekyllrb.com/docs/templates/#includes&quot;&gt;reusable code&lt;/a&gt;, and Layouts define how a page will render.&lt;/p&gt;
+
+&lt;h3 id=&quot;collections--documents&quot;&gt;Collections &amp;amp; documents&lt;/h3&gt;
+
+&lt;p&gt;One of Jekyll’s most exciting features is &lt;a href=&quot;https://jekyllrb.com/docs/collections/&quot;&gt;Collections&lt;/a&gt;, which is essentially a folder of text files (called Documents). Collection folders always start with underscore, and by default you’ll see a collection called &lt;code class=&quot;highlighter-rouge&quot;&gt;_posts&lt;/code&gt; which is designed to behave like a blog.&lt;/p&gt;
+
+&lt;p&gt;Inside the &lt;code class=&quot;highlighter-rouge&quot;&gt;_posts&lt;/code&gt; folder, you should see a sample post called “Welcome to Jekyll,” containing some Markdown-formatted text.&lt;/p&gt;
+
+&lt;p&gt;Posts are special, and are named using the format &lt;code class=&quot;highlighter-rouge&quot;&gt;YYYY-MM-DD-title.markdown&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;As another important distinction, all documents and pages start with a block of YAML called &lt;a href=&quot;https://jekyllrb.com/docs/frontmatter/&quot;&gt;front matter&lt;/a&gt;. This is what separates static files from those that are processed by Jekyll. Similar to the config file, front matter contains your document title, date, and other metadata. You can also use front matter to reference the layout you’d like to use.&lt;/p&gt;
+
+&lt;p&gt;Your default post should look something like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nn&quot;&gt;---&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;layout&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;post&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;  &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;Welcome&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;to&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;Jekyll!&quot;&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;date&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;   &lt;span class=&quot;s&quot;&gt;2016-06-11 18:20:24 -0400&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;categories&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;jekyll update&lt;/span&gt;
+&lt;span class=&quot;nn&quot;&gt;---&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;You’ll find this post in your `_posts` directory...&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h3 id=&quot;output&quot;&gt;Output&lt;/h3&gt;
+
+&lt;p&gt;Another special folder you’ll come across later is &lt;code class=&quot;highlighter-rouge&quot;&gt;_site&lt;/code&gt;. This is where Jekyll stores its compiled HTML files. Once built, these files can be uploaded directly to an FTP server for hosting.&lt;/p&gt;
+
+&lt;p class=&quot;tip&quot;&gt;If using Git, you’ll generally want to use a &lt;a href=&quot;https://help.github.com/articles/ignoring-files/&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;.gitignore&lt;/code&gt; file&lt;/a&gt; to avoid checking in the compiled &lt;code class=&quot;highlighter-rouge&quot;&gt;_site&lt;/code&gt; folder.&lt;/p&gt;
+
+&lt;p&gt;That’s just a quick overview of the file structure, for a more in-depth look see: &lt;a href=&quot;http://learn.siteleaf.com/themes/structure/&quot;&gt;http://learn.siteleaf.com/themes/structure/&lt;/a&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;local-preview&quot;&gt;Local preview&lt;/h2&gt;
+
+&lt;p&gt;Now that we’ve looked under the hood, let’s preview our Jekyll site:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;jekyll serve
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;By default Jekyll will serve on localhost port 4000. We can open this up in a web browser, and take a look at the default theme and content.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/jekyll-from-scratch-preview.jpg&quot; alt=&quot;Previewing Jekyll locally&quot; /&gt;&lt;/p&gt;
+
+&lt;p class=&quot;caption&quot;&gt;Previewing Jekyll locally&lt;/p&gt;
+
+&lt;p&gt;It’s nothing fancy, but you should see a “Welcome to Jekyll” post and an “About” page.&lt;/p&gt;
+
+&lt;p&gt;Next we can try making a small change.&lt;/p&gt;
+
+&lt;p&gt;Find the about page in the site’s root, called &lt;code class=&quot;highlighter-rouge&quot;&gt;about.md&lt;/code&gt;. This file could also be called &lt;code class=&quot;highlighter-rouge&quot;&gt;about.markdown&lt;/code&gt; if that’s your preference, either extension is fine.&lt;/p&gt;
+
+&lt;p&gt;So make a quick text change, and hit save in your text editor.&lt;/p&gt;
+
+&lt;p&gt;Now, refresh the browser and the text change should be immediately available.&lt;/p&gt;
+
+&lt;p&gt;Jekyll is working behind the scenes to automatically detect changes in the site’s files, so you don’t have to restart your server when making edits. The only exception to this is the &lt;code class=&quot;highlighter-rouge&quot;&gt;_config.yml&lt;/code&gt; file.&lt;/p&gt;
+
+&lt;h2 id=&quot;push-to-github&quot;&gt;Push to GitHub&lt;/h2&gt;
+
+&lt;p&gt;Now that we’ve created a basic Jekyll site, we could grab the contents of &lt;code class=&quot;highlighter-rouge&quot;&gt;_site&lt;/code&gt; and upload it just as it is to an FTP server.&lt;/p&gt;
+
+&lt;p&gt;But for this tutorial, we’ll take it a step further and push the site to GitHub so we can connect it with Siteleaf later.&lt;/p&gt;
+
+&lt;p&gt;In the video above, I’m using the &lt;a href=&quot;https://desktop.github.com&quot;&gt;GitHub Desktop&lt;/a&gt; app, but you can use your favorite Git tool here.&lt;/p&gt;
+
+&lt;p&gt;Below is how we can do the same from the command line.&lt;/p&gt;
+
+&lt;p&gt;First, we’ll initialize the local repository:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;git init
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Next, we’ll stage the files and commit changes:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;git add .
+&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;git commit -m &lt;span class=&quot;s2&quot;&gt;&quot;initial commit&quot;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Finally, we’ll add our remote GitHub repo and push to master:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;git remote add origin https://github.com/username/my-site.git
+&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;git push origin master
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;And that’s it, you should now have a working Jekyll site on GitHub.&lt;/p&gt;
+
+&lt;h2 id=&quot;next-steps&quot;&gt;Next steps&lt;/h2&gt;
+
+&lt;p&gt;To dive deeper, check out our help site &lt;a href=&quot;http://learn.siteleaf.com&quot;&gt;learn.siteleaf.com&lt;/a&gt; and &lt;a href=&quot;http://jekyllrb.com/docs&quot;&gt;Jekyll’s official documentation&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Check out our &lt;a href=&quot;/blog/connecting-github&quot;&gt;next tutorial&lt;/a&gt; where we’ll show you how to sync your GitHub repo with Siteleaf.&lt;/p&gt;
+</description>
+        <pubDate>Tue, 14 Jun 2016 13:00:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/jekyll-from-scratch/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/jekyll-from-scratch/</guid>
+        
+        <category>tutorial</category>
+        
+        <category>jekyll</category>
+        
+        <category>github</category>
+        
+        <category>video</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>Introducing learn.siteleaf.com</title>
+        <description>&lt;p&gt;&lt;a href=&quot;http://learn.siteleaf.com&quot;&gt;&lt;img src=&quot;/uploads/badges.svg&quot; alt=&quot;learn.siteleaf.com&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;Last week we released the brand new &lt;a href=&quot;/blog/v2&quot;&gt;Siteleaf v2&lt;/a&gt;, which is built on Jekyll and comes with tons of &lt;a href=&quot;/features&quot;&gt;new features&lt;/a&gt; like GitHub sync.&lt;/p&gt;
+
+&lt;p&gt;To help get everyone up to speed on v2, we’re excited to officially launch our new help site &lt;a href=&quot;http://learn.siteleaf.com&quot;&gt;learn.siteleaf.com&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Learn about &lt;a href=&quot;http://learn.siteleaf.com/themes/&quot;&gt;Developing Themes&lt;/a&gt;, &lt;a href=&quot;http://learn.siteleaf.com/content/&quot;&gt;Managing Content&lt;/a&gt;, using the &lt;a href=&quot;http://learn.siteleaf.com/api/&quot;&gt;API&lt;/a&gt;, how to migrate your &lt;a href=&quot;http://learn.siteleaf.com/v1/&quot;&gt;Legacy Site&lt;/a&gt;, and more!&lt;/p&gt;
+
+&lt;p&gt;The help site itself is built on Siteleaf v2 (of course), and is &lt;a href=&quot;https://github.com/siteleaf/learn.siteleaf.com&quot;&gt;open source on GitHub&lt;/a&gt;. We encourage your feedback and contributions.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Pro tip:&lt;/strong&gt; You can even download a full copy of the repo (&lt;a href=&quot;https://github.com/siteleaf/learn.siteleaf.com/archive/master.zip&quot;&gt;ZIP&lt;/a&gt;) for offline reference.&lt;/p&gt;
+
+&lt;p&gt;Happy learning!&lt;/p&gt;
+</description>
+        <pubDate>Mon, 13 Jun 2016 17:03:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/introducing-learn/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/introducing-learn/</guid>
+        
+        <category>announcement</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>Say hello to Siteleaf v2</title>
+        <description>&lt;iframe src=&quot;https://player.vimeo.com/video/169542999?title=0&amp;amp;byline=0&amp;amp;portrait=0&quot; width=&quot;680&quot; height=&quot;383&quot; frameborder=&quot;0&quot; webkitallowfullscreen=&quot;&quot; mozallowfullscreen=&quot;&quot; allowfullscreen=&quot;&quot;&gt;&lt;/iframe&gt;
+
+&lt;p class=&quot;caption&quot;&gt;Watch &lt;a href=&quot;https://vimeo.com/169542999&quot;&gt;Introducing Siteleaf v2&lt;/a&gt; on Vimeo&lt;/p&gt;
+
+&lt;p&gt;Nearly three years ago to the day, we launched the &lt;a href=&quot;/blog/introducing-siteleaf/&quot;&gt;first public version&lt;/a&gt; of Siteleaf. We set out to create a new kind of content management system, one that marries the best parts of a static website generator (speed and simplicity) with a traditional CMS (power and collaboration). We dreamed of a tool that could be simple, without being dumbed down. One that values data portability, and is designed for a better web. As web developers ourselves, we wouldn’t have it any other way.&lt;/p&gt;
+
+&lt;p&gt;Today marks a huge milestone towards this goal. We’re excited to announce Siteleaf v2 is now available, and with it comes compatibility with &lt;a href=&quot;http://jekyllrb.com/&quot;&gt;Jekyll&lt;/a&gt;, the &lt;a href=&quot;http://www.staticgen.com&quot;&gt;most popular&lt;/a&gt; open source static site generator. Everything you already love about Siteleaf is still here (and much improved), but we’ve traded our proprietary templating system for one that’s powering over &lt;a href=&quot;https://github.com/blog/1992-eight-lessons-learned-hacking-on-github-pages-for-six-months&quot;&gt;half a million websites&lt;/a&gt; by GitHub alone. We feel pretty good about that.&lt;/p&gt;
+
+&lt;p&gt;Those familiar with Siteleaf v1 will immediately feel at home with Jekyll. It’s the same HTML, Liquid, and Markdown goodness you already love, but with a bag of snazzy new tricks — including collections, nested metadata, custom permalinks, offline development, and more. Now, not only can you host your compiled site anywhere, you’re in control of your source data too.&lt;/p&gt;
+
+&lt;p&gt;In addition, Siteleaf v2 now &lt;a href=&quot;/features&quot;&gt;syncs directly with GitHub&lt;/a&gt; so you can bring your existing Jekyll sites over in one click — and just as easily move your site out. Every edit you or other authors make in Siteleaf is synced to GitHub, including content and theme changes. See a log of edits, who made them, and revert back to any state with the Git tools you already use. It’s a time machine for your content.&lt;/p&gt;
+
+&lt;p&gt;With v2, we’re also launching a new set of &lt;a href=&quot;/plans&quot;&gt;plans&lt;/a&gt;, including a Developer plan which allows you to sync and publish to public GitHub repos totally free! To celebrate the launch, all new v2 plans come with a 40% off early-bird discount, because we love you.&lt;/p&gt;
+
+&lt;p&gt;For a more complete list of what’s new in v2, visit our &lt;a href=&quot;/features&quot;&gt;Features page&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;And don’t worry, v1 isn’t going away any time soon. We’ll continue to support all existing sites and grandfathered plans for the foreseeable future. We think you’re going to love v2, but there’s no pressure to immediately upgrade.&lt;/p&gt;
+
+&lt;p&gt;We’ve been inspired by all the &lt;a href=&quot;/gallery&quot;&gt;amazing things&lt;/a&gt; built by the Siteleaf community in these three short years, and we’re pumped to see what you’ll make with v2!&lt;/p&gt;
+
+&lt;p&gt;Finally, big thanks to all our beta testers for patiently helping us iron out bugs over the past few months.&lt;/p&gt;
+
+&lt;p&gt;Dive in to our brand new help site and get started with v2: &lt;a href=&quot;http://learn.siteleaf.com&quot;&gt;learn.siteleaf.com&lt;/a&gt;&lt;/p&gt;
+</description>
+        <pubDate>Tue, 07 Jun 2016 10:00:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/v2/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/v2/</guid>
+        
+        <category>announcement</category>
+        
+        <category>video</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>Join our team</title>
+        <description>&lt;p&gt;We are seeking a talented &lt;strong&gt;Backend Developer&lt;/strong&gt; to join our small, tight-knit team and contribute to the future of Siteleaf in a meaningful and rewarding way.&lt;/p&gt;
+
+&lt;p&gt;Siteleaf powers thousands of websites from independent blogs to Fortune 500 companies, with a passionate following among developers (we are a product for developers, made by developers). We just released an all-new &lt;a href=&quot;http://www.siteleaf.com&quot;&gt;Siteleaf v2&lt;/a&gt;, and have big ideas for the future. Right now is the perfect time to join our team, and help reimagine the future of static websites.&lt;/p&gt;
+
+&lt;p&gt;We are looking for someone with a strong code background (Ruby) and a passion for product design. You are not only interested in writing code, but making a product you love to use on every day. You will work closely with our team of designers and developers, collaborate on product vision, take ownership, and execute on your ideas. As a team we enjoy blurring the lines of design and engineering, and encourage cross-disciplinary collaboration as much as possible.&lt;/p&gt;
+
+&lt;p&gt;You will have some combination of the skills listed below, but always continue to learn and grow along with the product.&lt;/p&gt;
+
+&lt;h3 id=&quot;responsibilities&quot;&gt;Responsibilities&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Driving technical direction of core products&lt;/li&gt;
+  &lt;li&gt;Writing application code and reviewing pull requests&lt;/li&gt;
+  &lt;li&gt;Maintaining and contributing to open source projects&lt;/li&gt;
+  &lt;li&gt;Documenting APIs and software you help build&lt;/li&gt;
+  &lt;li&gt;Server deployment, scalability, and performance enhancements&lt;/li&gt;
+  &lt;li&gt;Working with customers to resolve issues and make product improvements&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;skills--experience&quot;&gt;Skills &amp;amp; Experience&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Strong Ruby experience and coding practices&lt;/li&gt;
+  &lt;li&gt;Familiarity with our product and related technology (Jekyll, Liquid, Markdown, etc)&lt;/li&gt;
+  &lt;li&gt;RESTful API design&lt;/li&gt;
+  &lt;li&gt;Experience with databases (MongoDB, Redis)&lt;/li&gt;
+  &lt;li&gt;Web application stack (Nginx, Rack, Sinatra, etc)&lt;/li&gt;
+  &lt;li&gt;Amazon Web Services (Elastic Beanstalk, EC2, S3, etc)&lt;/li&gt;
+  &lt;li&gt;Test-driven development (RSpec, etc)&lt;/li&gt;
+  &lt;li&gt;Git and GitHub&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;bonus-points&quot;&gt;Bonus Points&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;You are a Siteleaf user!&lt;/li&gt;
+  &lt;li&gt;Experience with Ruby Gems and open source projects&lt;/li&gt;
+  &lt;li&gt;Continuous integration and automation&lt;/li&gt;
+  &lt;li&gt;Docker and secure code environments (Hoosegow, etc)&lt;/li&gt;
+  &lt;li&gt;Frontend web development (JavaScript, Haml, Sass)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;br /&gt;
+Siteleaf is made by &lt;a href=&quot;http://oak.is&quot;&gt;Oak&lt;/a&gt;, a Brooklyn-based team of designers and developers who also make &lt;a href=&quot;http://www.dropmark.com&quot;&gt;Dropmark&lt;/a&gt; and a number of &lt;a href=&quot;http://pizza-compass.com&quot;&gt;other&lt;/a&gt; &lt;a href=&quot;http://partlyblue.com&quot;&gt;projects&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;While New York is preferred, we may consider remote for the right person. We are an equal opportunity team and value diversity at our company. Let’s be awesome together!&lt;/p&gt;
+
+&lt;h3 id=&quot;sound-like-you&quot;&gt;Sound like you?&lt;/h3&gt;
+
+&lt;p&gt;Send an email to &lt;a href=&quot;&amp;#109;&amp;#097;&amp;#105;&amp;#108;&amp;#116;&amp;#111;:&amp;#116;&amp;#101;&amp;#097;&amp;#109;&amp;#064;&amp;#115;&amp;#105;&amp;#116;&amp;#101;&amp;#108;&amp;#101;&amp;#097;&amp;#102;&amp;#046;&amp;#099;&amp;#111;&amp;#109;&amp;#063;&amp;#115;&amp;#117;&amp;#098;&amp;#106;&amp;#101;&amp;#099;&amp;#116;&amp;#061;&amp;#066;&amp;#097;&amp;#099;&amp;#107;&amp;#101;&amp;#110;&amp;#100;&amp;#037;&amp;#050;&amp;#048;&amp;#068;&amp;#101;&amp;#118;&amp;#101;&amp;#108;&amp;#111;&amp;#112;&amp;#101;&amp;#114;&quot;&gt;team@siteleaf.com&lt;/a&gt; and introduce yourself.&lt;/p&gt;
+
+&lt;p&gt;&lt;small&gt;p.s. Sound interesting but not sure you have the experience? We’re also looking for a &lt;a href=&quot;http://oak.is/intern&quot;&gt;fall intern&lt;/a&gt; later this year.&lt;/small&gt;&lt;/p&gt;
+</description>
+        <pubDate>Mon, 06 Jun 2016 00:00:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/join-our-team/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/join-our-team/</guid>
+        
+        <category>announcement</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>Publishing via the API</title>
+        <description>&lt;p&gt;For the last week publishing in the Siteleaf interface has been powered by our API. This has been a requested feature by some of our users and ourselves. Its behavior is bit different than some of our other API endpoints, so let’s go over it.&lt;/p&gt;
+
+&lt;p&gt;To initiate a publish, make an authenticated &lt;code class=&quot;highlighter-rouge&quot;&gt;POST&lt;/code&gt; request to the &lt;code class=&quot;highlighter-rouge&quot;&gt;/sites/:id/publish&lt;/code&gt; endpoint.&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;curl -u &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$API_KEY&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$API_SECRET&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt; -X POST &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  http://api.siteleaf.com/v1/sites/&lt;span class=&quot;nv&quot;&gt;$SITE_ID&lt;/span&gt;/publish
+
+&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;job_id&quot;&lt;/span&gt;:&lt;span class=&quot;s2&quot;&gt;&quot;e79af12c79ccd8866902d3dd&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt; 
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;This triggers a publish and immediately returns a job ID (or returns an already running job ID if one exists). You can stop here if you’d like and Siteleaf will happily chug away in the background.&lt;/p&gt;
+
+&lt;p&gt;But the fun doesn’t stop there. You can optionally check in on publish progress using your &lt;code class=&quot;highlighter-rouge&quot;&gt;job_id&lt;/code&gt; from above by making an authenticated &lt;code class=&quot;highlighter-rouge&quot;&gt;GET&lt;/code&gt; request to the new &lt;code class=&quot;highlighter-rouge&quot;&gt;/jobs/:id&lt;/code&gt; endpoint.&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;curl -u &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$API_KEY&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$API_SECRET&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt; &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  http://api.siteleaf.com/api/v1/jobs/e79af12c79ccd8866902d3dd
+
+event:publish
+data:&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;status&quot;&lt;/span&gt;:&lt;span class=&quot;s2&quot;&gt;&quot;working&quot;&lt;/span&gt;,&lt;span class=&quot;s2&quot;&gt;&quot;message&quot;&lt;/span&gt;:&lt;span class=&quot;s2&quot;&gt;&quot;Checking... /home&quot;&lt;/span&gt;,&lt;span class=&quot;s2&quot;&gt;&quot;updated_at&quot;&lt;/span&gt;:&lt;span class=&quot;s2&quot;&gt;&quot;1435159120&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;etc…]
+
+event:publish
+data:&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;status&quot;&lt;/span&gt;:&lt;span class=&quot;s2&quot;&gt;&quot;complete&quot;&lt;/span&gt;,&lt;span class=&quot;s2&quot;&gt;&quot;message&quot;&lt;/span&gt;:&lt;span class=&quot;s2&quot;&gt;&quot;Published&quot;&lt;/span&gt;,&lt;span class=&quot;s2&quot;&gt;&quot;updated_at&quot;&lt;/span&gt;:&lt;span class=&quot;s2&quot;&gt;&quot;1435159121&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;This endpoint, unlike our others, consistently returns &lt;a href=&quot;https://en.wikipedia.org/wiki/Server-sent_events&quot;&gt;Server Sent Events&lt;/a&gt; (SSE) instead of JSON documents (including  errors). The &lt;code class=&quot;highlighter-rouge&quot;&gt;data&lt;/code&gt; field is JSON encoded however. SSE is supported in all modern browsers and there are client libraries in a number of programming languages.&lt;/p&gt;
+
+&lt;p&gt;Additionally, job ID’s are kept for at least 30 minutes after completion so you can check in on a publish immediately or wait a bit.&lt;/p&gt;
+
+&lt;p&gt;Can’t wait to see what uses you come up with!&lt;/p&gt;
+
+&lt;h3 id=&quot;publishing-from-the-gem&quot;&gt;Publishing from the gem&lt;/h3&gt;
+
+&lt;p&gt;First install the latest gem (&lt;a href=&quot;https://rubygems.org/gems/siteleaf&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;0.9.23&lt;/code&gt;&lt;/a&gt; as of writing)&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;gem install siteleaf
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;And then…&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;siteleaf publish
+Fetching inventory...
+Compiling...
+&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;etc…]
+Published
+&lt;span class=&quot;gp&quot;&gt;=&amp;gt; &lt;/span&gt;Publish completed.
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Or if you don’t care about progress, you can use either of the following:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;siteleaf publish -q
+&lt;span class=&quot;gp&quot;&gt;$ &lt;/span&gt;siteleaf publish --quiet
+
+&lt;span class=&quot;gp&quot;&gt;=&amp;gt; &lt;/span&gt;Publish queued.
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;🎉🎉&lt;/p&gt;
+</description>
+        <pubDate>Wed, 24 Jun 2015 11:10:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/publishing-via-the-api/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/publishing-via-the-api/</guid>
+        
+        <category>announcement</category>
+        
+        <category>tutorial</category>
+        
+        <category>v1</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>Advanced Liquid: Group By</title>
+        <description>&lt;p&gt;Following &lt;a href=&quot;/blog/advanced-liquid-sort/&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;sort&lt;/code&gt;&lt;/a&gt; and &lt;a href=&quot;/blog/advanced-liquid-where/&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;where&lt;/code&gt;&lt;/a&gt;, this &lt;a href=&quot;/blog/tags/liquid&quot;&gt;Advanced Liquid&lt;/a&gt; post introduces another handy new filter to Siteleaf: &lt;code class=&quot;highlighter-rouge&quot;&gt;group_by&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;As the name suggests, this filter allows you to group your content by a certain property.&lt;/p&gt;
+
+&lt;p&gt;For example, here’s how we could group all posts by year published:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts_by_year&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;group_by&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;year&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;You can group by &lt;a href=&quot;http://v1.siteleaf.com/help/themes/variables/content/&quot;&gt;any property&lt;/a&gt; like date, title, slug, even metadata and taxonomy. Here are a few real-world examples you may want to apply to your theme.&lt;/p&gt;
+
+&lt;h3 id=&quot;group-posts-by-author&quot;&gt;Group posts by author&lt;/h3&gt;
+
+&lt;p&gt;With multiple authors on our blog, it may be a good idea to group together posts by each author. So let’s do that.&lt;/p&gt;
+
+&lt;p&gt;Starting with &lt;code class=&quot;highlighter-rouge&quot;&gt;site.posts&lt;/code&gt; (all posts within our site), we can apply the &lt;code class=&quot;highlighter-rouge&quot;&gt;group_by&lt;/code&gt; filter with &lt;code class=&quot;highlighter-rouge&quot;&gt;author&lt;/code&gt; as the parameter:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts_by_author&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;group_by&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;author&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Behind the scenes, posts are collected into an array which looks something like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-json highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+  &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;name&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Skylar Challand&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;items&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;...&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+  &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;name&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Larry Fox&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;items&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;...&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+  &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;...&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;The property (in this case &lt;code class=&quot;highlighter-rouge&quot;&gt;author&lt;/code&gt;) can be accessed by &lt;code class=&quot;highlighter-rouge&quot;&gt;name&lt;/code&gt; and matching posts are grouped under &lt;code class=&quot;highlighter-rouge&quot;&gt;items&lt;/code&gt;. Knowing that, we can display our grouped posts like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;author&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;posts_by_author&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+  &amp;lt;dt&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;author&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/dt&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;posts&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;author.items&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+  &amp;lt;dd&amp;gt;&amp;lt;a href=&quot;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&quot;&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/a&amp;gt;&amp;lt;/dd&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Tip:&lt;/strong&gt; To sort our authors alphabetically we could also apply &lt;code class=&quot;highlighter-rouge&quot;&gt;sort&lt;/code&gt; to our group:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts_by_author&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;group_by&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;author&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;sort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;name&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h3 id=&quot;group-posts-by-metadata&quot;&gt;Group posts by metadata&lt;/h3&gt;
+
+&lt;p&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;group_by&lt;/code&gt; also works on metadata and taxonomy. For example, here’s how we could group posts by color:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts_by_color&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;pages&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;group_by&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;meta.color&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Our grouped array will look something like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-json highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+  &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;name&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;red&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;items&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;...&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+  &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;name&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;blue&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;items&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;...&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]},&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+  &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;...&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h3 id=&quot;archive-page&quot;&gt;Archive page&lt;/h3&gt;
+
+&lt;p&gt;Grouping posts by year is a common pattern on archive pages. Since Siteleaf already &lt;a href=&quot;http://v1.siteleaf.com/help/themes/naming-your-files/&quot;&gt;generates archive pages&lt;/a&gt; for us, we can easily sprinkle in &lt;code class=&quot;highlighter-rouge&quot;&gt;group_by&lt;/code&gt; and have a beautiful blog archive in minutes.&lt;/p&gt;
+
+&lt;p&gt;First, let’s group our posts by year:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts_by_year&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;group_by&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;year&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;&lt;small&gt;Note: We are using &lt;code class=&quot;highlighter-rouge&quot;&gt;posts&lt;/code&gt; in this case rather than &lt;code class=&quot;highlighter-rouge&quot;&gt;site.posts&lt;/code&gt; because we only want posts relative to this page (but either could work).&lt;/small&gt;&lt;/p&gt;
+
+&lt;p&gt;Now we can display our grouped posts:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;year&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;posts_by_year&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+  &amp;lt;h2&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;year&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/h2&amp;gt;
+  &amp;lt;ul&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;post&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;year.items&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+    &amp;lt;li&amp;gt;&amp;lt;a href=&quot;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&quot;&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/a&amp;gt;&amp;lt;/li&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+  &amp;lt;/ul&amp;gt;
+&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Extra credit:&lt;/strong&gt; We could take this a step further and do a multi-level group, showing posts by year AND month:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;year&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;posts_by_year&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+  &amp;lt;h2&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;year&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/h2&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts_by_month&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;year&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;items&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;group_by&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;month&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;month&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;posts_by_month&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+    &amp;lt;h3&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;month&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;items&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;first&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;date&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;date&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;%B&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/h3&amp;gt;
+    &amp;lt;ul&amp;gt;
+    &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;post&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;month.items&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+      &amp;lt;li&amp;gt;&amp;lt;a href=&quot;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&quot;&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/a&amp;gt;&amp;lt;/li&amp;gt;
+    &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+    &amp;lt;/ul&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;In case you’re wondering, &lt;code class=&quot;highlighter-rouge&quot;&gt;%B&lt;/code&gt; gives us the month name (e.g. “April”) from a date. For full documentation see our &lt;a href=&quot;http://v1.siteleaf.com/help/themes/filters-and-tags/date-formating&quot;&gt;date formatting&lt;/a&gt; guide.&lt;/p&gt;
+
+&lt;p&gt;Until next time, happy coding!&lt;/p&gt;
+
+&lt;p&gt;&lt;small&gt;Follow &lt;a href=&quot;http://twitter.com/siteleaf&quot;&gt;@siteleaf&lt;/a&gt; and stay tuned for more &lt;a href=&quot;/blog/tags/liquid&quot;&gt;Advanced Liquid&lt;/a&gt;.&lt;/small&gt;&lt;/p&gt;
+</description>
+        <pubDate>Thu, 09 Apr 2015 16:30:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/advanced-liquid-group-by/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/advanced-liquid-group-by/</guid>
+        
+        <category>tutorial</category>
+        
+        <category>liquid</category>
+        
+        <category>v1</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>Advanced Liquid: Where</title>
+        <description>&lt;p&gt;Now that you are &lt;a href=&quot;/blog/advanced-liquid-sort/&quot;&gt;sorting&lt;/a&gt; like a pro, we’ll move on to another new and exciting Liquid filter: &lt;code class=&quot;highlighter-rouge&quot;&gt;where&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Where allows us to find content based on a parameter. If you are coming from Jekyll, you’ll be happy to know it follows the same syntax.&lt;/p&gt;
+
+&lt;p&gt;For example, here’s how we could find all pages titled “Foo”:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;foo_pages&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;pages&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;where&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;title&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Foo&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;As with &lt;code class=&quot;highlighter-rouge&quot;&gt;sort&lt;/code&gt;, you can use &lt;a href=&quot;http://v1.siteleaf.com/help/themes/variables/content/&quot;&gt;any property&lt;/a&gt; like date, title, slug, even metadata and taxonomy. Below are few real-world examples you might find useful.&lt;/p&gt;
+
+&lt;h3 id=&quot;show-posts-by-author&quot;&gt;Show posts by author&lt;/h3&gt;
+
+&lt;p&gt;So I just created a fancy new bio page for myself, and now I want to display posts I’ve written alongside my bio.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/fancy-bio.png&quot; alt=&quot;fancy bio page&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;To locate posts written by a specific author across the entire site, we can start with &lt;code class=&quot;highlighter-rouge&quot;&gt;site.posts&lt;/code&gt;. Then we can apply the &lt;code class=&quot;highlighter-rouge&quot;&gt;where&lt;/code&gt; filter with &lt;code class=&quot;highlighter-rouge&quot;&gt;author&lt;/code&gt; as a parameter:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;my_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;where&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;author&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Skylar Challand&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;You can also use nested properties such as &lt;code class=&quot;highlighter-rouge&quot;&gt;author.email&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;my_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;where&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;author.email&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;skylar@siteleaf.com&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Now we can display our matching posts using the &lt;code class=&quot;highlighter-rouge&quot;&gt;my_posts&lt;/code&gt; variable we just created:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&amp;lt;ul&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;post&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;my_posts&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+  &amp;lt;li&amp;gt;&amp;lt;a href=&quot;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&quot;&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/a&amp;gt;&amp;lt;/li&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&amp;lt;/ul&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Don’t repeat yourself:&lt;/strong&gt; Since the title on my bio page matches the author name (“Skylar Challand”), we could use &lt;code class=&quot;highlighter-rouge&quot;&gt;title&lt;/code&gt; as a variable and make our theme code reusable:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;my_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;where&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;author&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;title&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h3 id=&quot;show-featured-posts&quot;&gt;Show featured posts&lt;/h3&gt;
+
+&lt;p&gt;In the &lt;a href=&quot;/blog/advanced-liquid-sort/&quot;&gt;previous tutorial&lt;/a&gt; we showed you how to use &lt;a href=&quot;/blog/metadata-in-siteleaf/&quot;&gt;metadata&lt;/a&gt; to create “sticky” posts.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/meta-sticky.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Using the same metadata, we could grab all posts with this flag:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;sticky_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;where&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;meta.sticky&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;yes&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;The same could be applied to any metadata. For example, we could find all posts with a color of “Red”:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;red_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;pages&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;where&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;meta.color&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Red&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Or posts with a particular tag:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;tagged_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;where&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;taxonomy.tags&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;whiskey&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Mm whiskey.&lt;/p&gt;
+
+&lt;h3 id=&quot;filter-by-year&quot;&gt;Filter by year&lt;/h3&gt;
+
+&lt;p&gt;You can also filter content by date parts including &lt;code class=&quot;highlighter-rouge&quot;&gt;year&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;month&lt;/code&gt;, and &lt;code class=&quot;highlighter-rouge&quot;&gt;day&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Here’s how we could get all posts published this year:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;latest_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;where&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;year&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;2015&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Again we could take this a step further and use a variable in place of year:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;this_year&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;date&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;date&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;%Y&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;new_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;where&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;year&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;this_year&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;&lt;small&gt;Follow &lt;a href=&quot;http://twitter.com/siteleaf&quot;&gt;@siteleaf&lt;/a&gt; and stay tuned for more &lt;a href=&quot;/blog/tags/liquid&quot;&gt;Advanced Liquid&lt;/a&gt;!&lt;/small&gt;&lt;/p&gt;
+</description>
+        <pubDate>Wed, 08 Apr 2015 15:25:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/advanced-liquid-where/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/advanced-liquid-where/</guid>
+        
+        <category>tutorial</category>
+        
+        <category>liquid</category>
+        
+        <category>v1</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>Advanced Liquid: Sort</title>
+        <description>&lt;p&gt;&lt;a href=&quot;http://v1.siteleaf.com/help/themes/getting-started/&quot;&gt;Liquid&lt;/a&gt; is the flexible templating language that powers themes on Siteleaf. While simple at first glance, there’s a lot of power under the hood for those wanting a greater level of control. In this new blog series, we’ll dive deeper and take a look at some advanced Liquid code and examples.&lt;/p&gt;
+
+&lt;p&gt;First up in this post, we’ll take a look at the &lt;code class=&quot;highlighter-rouge&quot;&gt;sort&lt;/code&gt; &lt;a href=&quot;http://v1.siteleaf.com/help/themes/filters-and-tags&quot;&gt;filter&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;With any site, Siteleaf makes some general assumptions about your content. For example, posts are sorted by date (newest post shows first) and pages are sorted manually. In cases where this doesn’t fit your design, you can utilize the &lt;code class=&quot;highlighter-rouge&quot;&gt;sort&lt;/code&gt; filter to order content any way you wish.&lt;/p&gt;
+
+&lt;p&gt;For example, here’s how we might sort pages by date:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;sorted&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;pages&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;sort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;date&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;This will sort in ascending order, but we could also choose descending order by adding &lt;code class=&quot;highlighter-rouge&quot;&gt;reverse&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;sorted&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;pages&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;sort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;date&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;reverse&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;You can sort on &lt;a href=&quot;http://v1.siteleaf.com/help/themes/variables/content/&quot;&gt;any property&lt;/a&gt; like date, title, slug, even metadata and taxonomy. Below are few real-world examples you might find useful.&lt;/p&gt;
+
+&lt;h3 id=&quot;sort-tags-alphabetically&quot;&gt;Sort tags alphabetically&lt;/h3&gt;
+
+&lt;p&gt;Tags by default are shown in the order in which they were added. If you’d like to display your tags ordered alphabetically, you can achieve this using the &lt;code class=&quot;highlighter-rouge&quot;&gt;sort&lt;/code&gt; filter.&lt;/p&gt;
+
+&lt;p&gt;In this example, we’ll create a variable called &lt;code class=&quot;highlighter-rouge&quot;&gt;sorted_tags&lt;/code&gt; to hold our sorted tags using the &lt;a href=&quot;https://github.com/Shopify/liquid/wiki/Liquid-for-Designers#variable-assignment&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;assign&lt;/code&gt;&lt;/a&gt; Liquid tag (feel free to use any variable name you wish):&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;sorted_tags&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;tags&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;sort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;value&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Once sorted, we can display the tags using the &lt;code class=&quot;highlighter-rouge&quot;&gt;sorted_tags&lt;/code&gt; variable we just created:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;tag&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;sorted_tags&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+  &amp;lt;li&amp;gt;&amp;lt;a href=&quot;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;tag&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&quot;&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;tag&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/a&amp;gt;&amp;lt;/li&amp;gt;
+&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h3 id=&quot;sort-posts-by-metadata&quot;&gt;Sort posts by metadata&lt;/h3&gt;
+
+&lt;p&gt;Posts are generally shown in date order, but you can use the &lt;code class=&quot;highlighter-rouge&quot;&gt;sort&lt;/code&gt; filter to order on any property. With the &lt;a href=&quot;http://www.siteleaf.com/blog/metadata-in-siteleaf/&quot;&gt;power of metadata&lt;/a&gt;, that can be pretty much anything you want.&lt;/p&gt;
+
+&lt;p&gt;In this example, we’ll set up a meta field on our posts called &lt;code class=&quot;highlighter-rouge&quot;&gt;num&lt;/code&gt; to manually sort with numeric values from 01 to 10:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/meta-num.png&quot; alt=&quot;meta-num&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Using the &lt;code class=&quot;highlighter-rouge&quot;&gt;sort&lt;/code&gt; filter, we can now order posts by &lt;code class=&quot;highlighter-rouge&quot;&gt;meta.num&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;sorted_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;sort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;meta.num&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;And of course, we can display these posts as we normally would:&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&amp;lt;ul&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;post&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;in&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;sorted_posts&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+  &amp;lt;li&amp;gt;&amp;lt;a href=&quot;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&quot;&amp;gt;&lt;span class=&quot;p&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;post&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;&amp;lt;/a&amp;gt;&amp;lt;/li&amp;gt;
+  &lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;endfor&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&amp;lt;/ul&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h3 id=&quot;sticky-posts&quot;&gt;Sticky posts&lt;/h3&gt;
+
+&lt;p&gt;Perhaps you’d like to have an important or “sticky” post show up first, and retain the default order for the rest of your posts. In this case we could use metadata again.&lt;/p&gt;
+
+&lt;p&gt;For this example, we’ll add a meta field to our sticky post called &lt;code class=&quot;highlighter-rouge&quot;&gt;sticky&lt;/code&gt; and set a value of “yes”. We only need to add this to the sticky post, regular posts will have a blank value.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/uploads/meta-sticky.png&quot; alt=&quot;meta-sticky&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Now we can sort our posts by &lt;code class=&quot;highlighter-rouge&quot;&gt;meta.sticky&lt;/code&gt;, but we’ll also add a second parameter (&lt;code class=&quot;highlighter-rouge&quot;&gt;last&lt;/code&gt;) to make sure our non-sticky posts are pushed below.&lt;/p&gt;
+
+&lt;div class=&quot;language-liquid highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;p&quot;&gt;{%&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;assign&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;sorted_posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;posts&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;sort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;meta.sticky&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;last&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;%}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;By adding &lt;code class=&quot;highlighter-rouge&quot;&gt;last&lt;/code&gt; you are telling Siteleaf to sort blank or null values last (the default is first).&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Bonus tip:&lt;/strong&gt; &lt;code class=&quot;highlighter-rouge&quot;&gt;meta.sticky&lt;/code&gt; is equivalent to &lt;code class=&quot;highlighter-rouge&quot;&gt;meta[&quot;sticky&quot;]&lt;/code&gt;. Liquid supports both square bracket and dot notation, so if you have a preference feel free to stick with it.&lt;/p&gt;
+
+&lt;p&gt;&lt;small&gt;Stay tuned for more Advanced Liquid, up next we’ll be looking at the filters &lt;code class=&quot;highlighter-rouge&quot;&gt;where&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;group_by&lt;/code&gt;.&lt;/small&gt;&lt;/p&gt;
+</description>
+        <pubDate>Tue, 07 Apr 2015 10:00:00 -0400</pubDate>
+        <link>http://www.siteleaf.com/blog/advanced-liquid-sort/</link>
+        <guid isPermaLink="true">http://www.siteleaf.com/blog/advanced-liquid-sort/</guid>
+        
+        <category>tutorial</category>
+        
+        <category>liquid</category>
+        
+        <category>v1</category>
+        
+        
+      </item>
+    
+  </channel>
+</rss>
